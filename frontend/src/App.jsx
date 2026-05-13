@@ -73,7 +73,7 @@ export default function App() {
   // ─── DYNAMIC LAYOUT & RESPONSIVE MATH ────────────────────────────────────
   const isMobile = window.innerWidth < 768;
   const GAP = 3;
-  const SNAP = 55;
+  const SNAP = 65;
   
   const BX = isMobile ? 15 : 420; 
   const BY = isMobile ? 380 : 40; 
