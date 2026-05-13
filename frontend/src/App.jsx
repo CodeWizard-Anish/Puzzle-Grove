@@ -1,44 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-// ─── ORIENTATION STATE ───────────────────────────────────────────────────
-  const [isPortrait, setIsPortrait] = useState(
-    window.innerHeight > window.innerWidth && window.innerWidth < 768
-  );
 
-  useEffect(() => {
-    const handleResize = () => {
-      // Check if it's a mobile device AND currently being held vertically
-      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
-    };
-    
-    window.addEventListener('resize', handleResize);
-    // Call it once on mount just to be sure
-    handleResize(); 
-    
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-const PS = 86;
-const G = 4;
-const GAP = 3;
-const SNAP = 75;
-const BX = 420;
-const BY = 40;
-const BOARD_SIZE = G * (PS + GAP) - GAP;
-
+// ─── STATIC CONSTANTS & HELPERS ──────────────────────────────────────────
 const PRESETS = [
   { seed: "forestgrove1",  label: "Ancient Forest",    icon: "🌲" },
-  { seed: "skypalace99",   label: "Sky Palace",         icon: "🏯" },
-  { seed: "koipond42",     label: "Koi Pond",           icon: "🎏" },
+  { seed: "skypalace99",   label: "Sky Palace",        icon: "🏯" },
+  { seed: "koipond42",     label: "Koi Pond",          icon: "🎏" },
   { seed: "blossomhill7",  label: "Blossom Hill",       icon: "🌸" },
   { seed: "lanternfest",   label: "Spirit Lanterns",    icon: "🏮" },
   { seed: "mistymount88",  label: "Misty Mountain",     icon: "⛰️" },
 ];
 
-const imgUrl = seed => `https://picsum.photos/seed/${seed}/${G * PS}/${G * PS}`;
-
-const slotPos = (col, row) => ({
-  x: BX + col * (PS + GAP),
-  y: BY + row * (PS + GAP),
-});
+const CONFETTI_COLORS = ["#FFD700","#FF6B6B","#4ECDC4","#FF9F43","#A29BFE","#FD79A8","#55EFC4","#FDCB6E","#E17055","#6C5CE7"];
 
 function fisherYates(arr) {
   const a = [...arr];
@@ -48,23 +20,6 @@ function fisherYates(arr) {
   }
   return a;
 }
-
-function makePieces(tw, th) {
-  const order = fisherYates(Array.from({ length: 16 }, (_, i) => i));
-  const placed = [];
-  return order.map(id => {
-    let x, y, t = 0;
-    do {
-      x = 10 + Math.random() * (tw - PS - 20);
-      y = 10 + Math.random() * (th - PS - 20);
-      t++;
-    } while (t < 60 && placed.some(p => Math.abs(p.x - x) < PS - 10 && Math.abs(p.y - y) < PS - 10));
-    placed.push({ x, y });
-    return { id, col: id % G, row: Math.floor(id / G), x, y, locked: false };
-  });
-}
-
-const CONFETTI_COLORS = ["#FFD700","#FF6B6B","#4ECDC4","#FF9F43","#A29BFE","#FD79A8","#55EFC4","#FDCB6E","#E17055","#6C5CE7"];
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,600;0,700;1,400&family=Nunito:wght@600;700;800&display=swap');
@@ -77,6 +32,7 @@ body{overflow-x:hidden}
 @keyframes shimmer{0%,100%{opacity:.4}50%{opacity:.9}}
 @keyframes snap{0%{transform:scale(1.1)}100%{transform:scale(1)}}
 @keyframes wink{0%,90%,100%{opacity:1}95%{opacity:0}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
 .btn-primary{background:linear-gradient(135deg,#5B8C42,#3a6128);color:#fff;border:none;padding:14px 44px;border-radius:50px;font-size:18px;font-family:'Nunito',sans-serif;font-weight:800;cursor:pointer;box-shadow:0 4px 22px rgba(91,140,66,.45);transition:transform .2s,box-shadow .2s;letter-spacing:.4px}
 .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(91,140,66,.6)}
 .btn-primary:active{transform:translateY(1px)}
@@ -93,10 +49,15 @@ body{overflow-x:hidden}
 `;
 
 export default function App() {
+  // ─── HOOKS (Safely inside the component) ─────────────────────────────────
+  const [isPortrait, setIsPortrait] = useState(
+    window.innerHeight > window.innerWidth && window.innerWidth < 768
+  );
+  
+  const [gridSize,    setGridSize]    = useState(4); // 4x4, 5x5, 6x6
   const [page,        setPage]        = useState("home");
   const [preset,      setPreset]      = useState(PRESETS[0]);
   const [customImg,   setCustomImg]   = useState(null);
-  const [activeImg,   setActiveImg]   = useState(imgUrl(PRESETS[0].seed));
   const [pieces,      setPieces]      = useState([]);
   const [moves,       setMoves]       = useState(0);
   const [secs,        setSecs]        = useState(0);
@@ -109,46 +70,72 @@ export default function App() {
   const arena  = useRef(null);
   const ticker = useRef(null);
 
-  const TW = BX - 14;
-  const GH = BY * 2 + BOARD_SIZE;
+  // ─── DYNAMIC LAYOUT & RESPONSIVE MATH ────────────────────────────────────
+  const isMobile = window.innerWidth < 768;
+  const GAP = 3;
+  const SNAP = 75;
+  
+  const BX = isMobile ? 15 : 420; 
+  const BY = isMobile ? 380 : 40; 
+  const BOARD_SIZE = isMobile ? window.innerWidth - 30 : 350; 
+  const PS = Math.floor((BOARD_SIZE + GAP) / gridSize) - GAP; 
+  const TW = isMobile ? window.innerWidth - 20 : 400; 
+  const GH = isMobile ? BY + BOARD_SIZE + 40 : BY * 2 + BOARD_SIZE;
   const GW = BX + BOARD_SIZE + 22;
+  const totalPieces = gridSize * gridSize;
+
+  // Image URL generator based on dynamic grid size
+  const imgUrl = useCallback((seed) => `https://picsum.photos/seed/${seed}/${gridSize * PS}/${gridSize * PS}`, [gridSize, PS]);
+  const [activeImg, setActiveImg] = useState(imgUrl(PRESETS[0].seed));
+
+  // Update image resolution if grid size changes
+  useEffect(() => {
+    if (preset) setActiveImg(imgUrl(preset.seed));
+  }, [gridSize, preset, imgUrl]);
 
   const locked = pieces.filter(p => p.locked).length;
   const fmt = s => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
-  function startGame(url = activeImg) {
-    setPieces(makePieces(TW, GH));
-    setMoves(0); setSecs(0);
-    setRunning(true); setPreview(false);
-    setPage("game");
+  const slotPos = useCallback((col, row) => ({
+    x: BX + col * (PS + GAP),
+    y: BY + row * (PS + GAP),
+  }), [BX, BY, PS, GAP]);
+
+  function makePieces(tw, th, currentGrid, pieceSize) {
+    const order = fisherYates(Array.from({ length: totalPieces }, (_, i) => i));
+    const placed = [];
+    return order.map(id => {
+      let x, y, t = 0;
+      do {
+        x = 10 + Math.random() * (tw - pieceSize - 20);
+        y = 10 + Math.random() * (th - pieceSize - 20);
+        t++;
+      } while (t < 60 && placed.some(p => Math.abs(p.x - x) < pieceSize - 10 && Math.abs(p.y - y) < pieceSize - 10));
+      placed.push({ x, y });
+      return { id, col: id % currentGrid, row: Math.floor(id / currentGrid), x, y, locked: false };
+    });
   }
 
-  function selectPreset(p) {
-    setPreset(p);
-    setActiveImg(imgUrl(p.seed));
-    setCustomImg(null);
-  }
+  // ─── EFFECTS ─────────────────────────────────────────────────────────────
+  
+  // Orientation Detector
+  useEffect(() => {
+    const handleResize = () => setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    handleResize(); 
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  function handleUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      setCustomImg(ev.target.result);
-      setActiveImg(ev.target.result);
-      setPreset(null);
-    };
-    reader.readAsDataURL(file);
-  }
-
+  // Timer
   useEffect(() => {
     if (running) { ticker.current = setInterval(() => setSecs(s => s+1), 1000); }
     else clearInterval(ticker.current);
     return () => clearInterval(ticker.current);
   }, [running]);
-// Watch the game state and trigger the win screen when all 16 pieces lock
+
+  // Win State Trigger
   useEffect(() => {
-    if (running && locked === 16) {
+    if (running && locked === totalPieces && totalPieces > 0) {
       setRunning(false);
       setTimeout(() => {
         setConfetti(Array.from({ length: 55 }, (_, i) => ({
@@ -160,7 +147,46 @@ export default function App() {
         setPage("win");
       }, 500);
     }
-  }, [locked, running]);
+  }, [locked, running, totalPieces]);
+
+  // ─── EVENT HANDLERS ──────────────────────────────────────────────────────
+  function startGame(url = activeImg) {
+    setPieces(makePieces(TW, GH, gridSize, PS));
+    setMoves(0); setSecs(0);
+    setRunning(true); setPreview(false);
+    setPage("game");
+  }
+
+  function selectPreset(p) {
+    setPreset(p);
+    setActiveImg(imgUrl(p.seed));
+    setCustomImg(null);
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Optimistic UI loading
+    const objectUrl = URL.createObjectURL(file);
+    setCustomImg(objectUrl);
+    setActiveImg(objectUrl);
+    setPreset(null);
+
+    // Background server upload
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('difficulty', gridSize);
+
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      await fetch(`${apiUrl}/api/upload`, { method: 'POST', body: formData });
+    } catch (err) {
+      console.warn("Background upload failed silently:", err);
+    }
+  }
+
+  // ─── CRASH-PROOF DRAG PHYSICS ────────────────────────────────────────────
   const getXY = e => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
 
   const onDown = useCallback((e, id, isLocked) => {
@@ -169,14 +195,12 @@ export default function App() {
 
     const r = arena.current.getBoundingClientRect();
     const [cx, cy] = getXY(e);
-
     setDraggingId(id);
 
     setPieces(prev => {
       const p = prev.find(q => q.id === id);
       if (!p) return prev;
       
-      // Save exact starting coordinates
       drag.current = { 
         id, 
         ox: cx - r.left - p.x, 
@@ -200,20 +224,17 @@ export default function App() {
     const [cx, cy] = getXY(e);
     drag.current.hasMoved = true;
 
-    // 🚨 THE CRASH FIX: Bypass React entirely during the drag!
-    // We update the HTML element's style directly. Zero React re-renders.
+    // Bypass React completely for movement to prevent re-render crashes
     requestAnimationFrame(() => {
       if (!drag.current) return;
       const r = arena.current.getBoundingClientRect();
       const newX = cx - r.left - drag.current.ox;
       const newY = cy - r.top - drag.current.oy;
 
-      // Find the specific puzzle piece on the screen and move it
       const element = document.getElementById(`piece-${drag.current.id}`);
       if (element) {
         element.style.left = `${newX}px`;
         element.style.top = `${newY}px`;
-        // Save the live coordinates so onUp knows where it landed
         drag.current.liveX = newX;
         drag.current.liveY = newY;
       }
@@ -225,15 +246,12 @@ export default function App() {
     
     const id = drag.current.id;
     const didActuallyMove = drag.current.hasMoved;
-    
-    // Get the final dropped location, or default to where it started
     const dropX = drag.current.liveX ?? drag.current.startX;
     const dropY = drag.current.liveY ?? drag.current.startY;
     
     drag.current = null;
     setDraggingId(null);
 
-    // Now we update React state just ONCE when the mouse is released
     setPieces(prev => {
       const p = prev.find(q => q.id === id);
       if (!p) return prev;
@@ -243,14 +261,10 @@ export default function App() {
       if (dist < SNAP) {
         return prev.map(q => q.id === id ? { ...q, x: sp.x, y: sp.y, locked: true } : q);
       }
-      
-      // If it didn't snap, save its new resting place
       return prev.map(q => q.id === id ? { ...q, x: dropX, y: dropY } : q);
     });
 
-    if (didActuallyMove) {
-      setMoves(m => m + 1);
-    }
+    if (didActuallyMove) setMoves(m => m + 1);
   }, [slotPos]);
   
   useEffect(() => {
@@ -268,16 +282,15 @@ export default function App() {
   }, [onMove, onUp]);
 
   const BG = "radial-gradient(ellipse at 25% 75%, #0C1F14 0%, #162A1E 55%, #091410 100%)";
-// 🚨 PORTRAIT MODE BLOCKER
+
+  // ─── RENDERERS ───────────────────────────────────────────────────────────
+  
+  // 🚨 PORTRAIT MODE BLOCKER
   if (isPortrait) {
     return (
       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#1a1a1a", color:"#F0E8D0", textAlign:"center", padding:30 }}>
-        <div style={{ fontSize:50, marginBottom:20, animation:"pulse 2s infinite" }}>
-          🔄📱
-        </div>
-        <h2 style={{ fontFamily:"'Lora', serif", color:"#D4A940", fontSize:28, marginBottom:10 }}>
-          Rotate Your Device
-        </h2>
+        <div style={{ fontSize:50, marginBottom:20, animation:"pulse 2s infinite" }}>🔄📱</div>
+        <h2 style={{ fontFamily:"'Lora', serif", color:"#D4A940", fontSize:28, marginBottom:10 }}>Rotate Your Device</h2>
         <p style={{ fontSize:16, lineHeight:1.5, color:"rgba(240,232,208,.7)" }}>
           Puzzle Grove requires a wider screen to give you enough room to arrange the pieces. <br/><br/>
           Please turn your phone sideways to play!
@@ -285,12 +298,13 @@ export default function App() {
       </div>
     );
   }
+
   // ─── HOME ────────────────────────────────────────────────────────────────
   if (page === "home") return (
     <div style={{ fontFamily:"'Nunito',sans-serif", minHeight:"100vh", background:BG, color:"#F0E8D0", display:"flex", flexDirection:"column", alignItems:"center", padding:"32px 20px 48px", userSelect:"none", overflowX:"hidden" }}>
       <style>{CSS}</style>
 
-      {/* ambient glows */}
+      {/* Ambient glows */}
       <div style={{ position:"fixed", top:"-8%", right:"-6%", width:340, height:340, borderRadius:"50%", background:"radial-gradient(circle,rgba(91,140,66,.12) 0%,transparent 70%)", pointerEvents:"none" }} />
       <div style={{ position:"fixed", bottom:"2%", left:"-10%", width:420, height:420, borderRadius:"50%", background:"radial-gradient(circle,rgba(212,169,64,.07) 0%,transparent 70%)", pointerEvents:"none" }} />
 
@@ -324,21 +338,50 @@ export default function App() {
           ))}
         </div>
 
-        {/* Upload */}
+        {/* Upload & Difficulty */}
         <div style={{ marginTop:18, textAlign:"center" }}>
           <label className="upload-zone">
             <span style={{ fontSize:18 }}>📂</span>
             Upload your own image
             <input type="file" accept="image/*" onChange={handleUpload} style={{ display:"none" }} />
           </label>
+          
           {customImg && (
-            <div style={{ marginTop:12, display:"inline-flex", alignItems:"center", gap:12 }}>
+            <div style={{ marginTop:12, display:"flex", justifyContent: "center", alignItems:"center", gap:12 }}>
               <img src={customImg} alt="custom" onClick={() => { setActiveImg(customImg); setPreset(null); }} style={{ width:54, height:54, objectFit:"cover", borderRadius:10, border:`2px solid ${!preset ? "#D4A940" : "rgba(255,255,255,.15)"}`, cursor:"pointer" }} />
               <span style={{ fontSize:13, color:"rgba(240,232,208,.55)" }}>
                 {!preset ? "✓ Custom image selected" : "Click to select custom image"}
               </span>
             </div>
           )}
+
+          {/* Difficulty Toggle */}
+          <div style={{ marginTop:24 }}>
+            <p style={{ fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:3, color:"rgba(240,232,208,.38)", marginBottom:10 }}>
+              Difficulty
+            </p>
+            <div style={{ display:"inline-flex", background:"rgba(255,255,255,.05)", borderRadius:50, padding:4, border:"1px solid rgba(255,255,255,.1)" }}>
+              {[4, 5, 6].map(num => (
+                <button
+                  key={num}
+                  onClick={() => setGridSize(num)}
+                  style={{
+                    background: gridSize === num ? "#D4A940" : "transparent",
+                    color: gridSize === num ? "#1a1a1a" : "#F0E8D0",
+                    border: "none",
+                    borderRadius: 50,
+                    padding: "8px 24px",
+                    fontSize: 15,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    transition: "all .2s ease"
+                  }}
+                >
+                  {num}x{num}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -424,7 +467,7 @@ export default function App() {
         {[
           { icon:"⏱", val:fmt(secs), label:"Time" },
           { icon:"✋", val:moves, label:"Moves" },
-          { icon:"🧩", val:`${locked} / 16`, label:"Placed" },
+          { icon:"🧩", val:`${locked} / ${totalPieces}`, label:"Placed" },
         ].map(s => (
           <div key={s.label} style={{ background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.1)", borderRadius:10, padding:"6px 18px", display:"flex", alignItems:"center", gap:8, fontSize:15, fontWeight:700 }}>
             <span>{s.icon}</span>
@@ -454,8 +497,8 @@ export default function App() {
         <div ref={arena} style={{ position:"relative", width:GW, height:GH, overflow:"visible" }}>
 
           {/* Ghost slots */}
-          {Array.from({ length: 16 }, (_, i) => {
-            const col = i % G, row = Math.floor(i / G);
+          {Array.from({ length: totalPieces }, (_, i) => {
+            const col = i % gridSize, row = Math.floor(i / gridSize);
             const sp = slotPos(col, row);
             const filled = pieces.some(p => p.locked && p.col === col && p.row === row);
             return (
@@ -469,15 +512,15 @@ export default function App() {
             return (
               <div
                 key={p.id}
-                id={`piece-${p.id}`} // <--- ADD THIS LINE HERE
+                id={`piece-${p.id}`}
                 className={`piece${p.locked ? " locked" : ""}`}
                 onMouseDown={e => onDown(e, p.id, p.locked)}
-onTouchStart={e => onDown(e, p.id, p.locked)}
+                onTouchStart={e => onDown(e, p.id, p.locked)}
                 style={{
                   position:"absolute", left:p.x, top:p.y,
                   width:PS, height:PS,
                   backgroundImage:`url(${activeImg})`,
-                  backgroundSize:`${G*PS}px ${G*PS}px`,
+                  backgroundSize:`${gridSize*PS}px ${gridSize*PS}px`,
                   backgroundPosition:`-${p.col*PS}px -${p.row*PS}px`,
                   borderRadius: p.locked ? 6 : 9,
                   cursor: p.locked ? "default" : isActive ? "grabbing" : "grab",
@@ -499,11 +542,11 @@ onTouchStart={e => onDown(e, p.id, p.locked)}
       {/* Progress */}
       <div style={{ width:"100%", maxWidth:GW, marginTop:15 }}>
         <div style={{ height:5, background:"rgba(255,255,255,.08)", borderRadius:3, overflow:"hidden" }}>
-          <div style={{ height:"100%", width:`${(locked/16)*100}%`, background:"linear-gradient(90deg,#5B8C42,#D4A940)", borderRadius:3, transition:"width .4s ease" }} />
+          <div style={{ height:"100%", width:`${(locked/totalPieces)*100}%`, background:"linear-gradient(90deg,#5B8C42,#D4A940)", borderRadius:3, transition:"width .4s ease" }} />
         </div>
         <div style={{ display:"flex", justifyContent:"space-between", marginTop:5, fontSize:11, color:"rgba(240,232,208,.3)", fontWeight:700, textTransform:"uppercase", letterSpacing:1 }}>
           <span>Start</span>
-          <span>{locked > 0 ? `${Math.round(locked/16*100)}% complete` : "Drag pieces to the board"}</span>
+          <span>{locked > 0 ? `${Math.round(locked/totalPieces*100)}% complete` : "Drag pieces to the board"}</span>
           <span>Finish</span>
         </div>
       </div>
