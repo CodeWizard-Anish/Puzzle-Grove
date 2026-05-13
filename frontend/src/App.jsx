@@ -1,5 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+// ─── ORIENTATION STATE ───────────────────────────────────────────────────
+  const [isPortrait, setIsPortrait] = useState(
+    window.innerHeight > window.innerWidth && window.innerWidth < 768
+  );
 
+  useEffect(() => {
+    const handleResize = () => {
+      // Check if it's a mobile device AND currently being held vertically
+      setIsPortrait(window.innerHeight > window.innerWidth && window.innerWidth < 768);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    // Call it once on mount just to be sure
+    handleResize(); 
+    
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 const PS = 86;
 const G = 4;
 const GAP = 3;
@@ -145,11 +161,8 @@ export default function App() {
       }, 500);
     }
   }, [locked, running]);
-  const getXY = e => e.touches
-    ? [e.touches[0].clientX, e.touches[0].clientY]
-    : [e.clientX, e.clientY];
+  const getXY = e => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
 
-  // 1. We now pass "isLocked" directly so this function doesn't need dependencies
   const onDown = useCallback((e, id, isLocked) => {
     if (isLocked) return;
     if (e.cancelable) e.preventDefault();
@@ -163,11 +176,16 @@ export default function App() {
       const p = prev.find(q => q.id === id);
       if (!p) return prev;
       
-      // Initialize the RAF (Request Animation Frame) tracker
-      // Initialize the RAF tracker AND our new move flag
-      drag.current = { id, ox: cx - r.left - p.x, oy: cy - r.top - p.y, raf: null, hasMoved: false };
+      // Save exact starting coordinates
+      drag.current = { 
+        id, 
+        ox: cx - r.left - p.x, 
+        oy: cy - r.top - p.y, 
+        hasMoved: false,
+        startX: p.x,
+        startY: p.y
+      };
 
-      // Bring clicked piece to the top of the pile
       const a = [...prev];
       const i = a.findIndex(q => q.id === id);
       const [it] = a.splice(i, 1);
@@ -175,58 +193,65 @@ export default function App() {
     });
   }, []);
 
-  // 2. Throttle the mouse movements so it doesn't choke React
-const onMove = useCallback(e => {
+  const onMove = useCallback(e => {
     if (!drag.current || !arena.current) return;
     if (e.cancelable) e.preventDefault();
 
-    // 🚨 THE FIX: Grab the coordinates immediately before the event disappears
     const [cx, cy] = getXY(e);
-
-    if (drag.current.raf) cancelAnimationFrame(drag.current.raf);
-
     drag.current.hasMoved = true;
 
-    drag.current.raf = requestAnimationFrame(() => {
-      // Now use the safely stored cx and cy coordinates!
+    // 🚨 THE CRASH FIX: Bypass React entirely during the drag!
+    // We update the HTML element's style directly. Zero React re-renders.
+    requestAnimationFrame(() => {
+      if (!drag.current) return;
       const r = arena.current.getBoundingClientRect();
-      setPieces(prev => prev.map(p =>
-        p.id === drag.current.id
-          ? { ...p, x: cx - r.left - drag.current.ox, y: cy - r.top - drag.current.oy }
-          : p
-      ));
+      const newX = cx - r.left - drag.current.ox;
+      const newY = cy - r.top - drag.current.oy;
+
+      // Find the specific puzzle piece on the screen and move it
+      const element = document.getElementById(`piece-${drag.current.id}`);
+      if (element) {
+        element.style.left = `${newX}px`;
+        element.style.top = `${newY}px`;
+        // Save the live coordinates so onUp knows where it landed
+        drag.current.liveX = newX;
+        drag.current.liveY = newY;
+      }
     });
   }, []);
 
-  // 3. Clean up the memory on release
   const onUp = useCallback(() => {
     if (!drag.current) return;
     
-    // Stop the animation frame loop
-    if (drag.current.raf) cancelAnimationFrame(drag.current.raf);
-
     const id = drag.current.id;
-    const didActuallyMove = drag.current.hasMoved; // Save the flag!
+    const didActuallyMove = drag.current.hasMoved;
+    
+    // Get the final dropped location, or default to where it started
+    const dropX = drag.current.liveX ?? drag.current.startX;
+    const dropY = drag.current.liveY ?? drag.current.startY;
+    
     drag.current = null;
     setDraggingId(null);
 
+    // Now we update React state just ONCE when the mouse is released
     setPieces(prev => {
       const p = prev.find(q => q.id === id);
       if (!p) return prev;
       const sp = slotPos(p.col, p.row);
-      const dist = Math.hypot(p.x - sp.x, p.y - sp.y);
+      const dist = Math.hypot(dropX - sp.x, dropY - sp.y);
 
-      // Snap to grid
       if (dist < SNAP) {
         return prev.map(q => q.id === id ? { ...q, x: sp.x, y: sp.y, locked: true } : q);
       }
-      return prev;
+      
+      // If it didn't snap, save its new resting place
+      return prev.map(q => q.id === id ? { ...q, x: dropX, y: dropY } : q);
     });
-    // Only increment the counter if they actually dragged the piece
+
     if (didActuallyMove) {
       setMoves(m => m + 1);
     }
-  }, []);
+  }, [slotPos]);
   
   useEffect(() => {
     const opts = { passive: false };
@@ -243,7 +268,23 @@ const onMove = useCallback(e => {
   }, [onMove, onUp]);
 
   const BG = "radial-gradient(ellipse at 25% 75%, #0C1F14 0%, #162A1E 55%, #091410 100%)";
-
+// 🚨 PORTRAIT MODE BLOCKER
+  if (isPortrait) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100vh", background:"#1a1a1a", color:"#F0E8D0", textAlign:"center", padding:30 }}>
+        <div style={{ fontSize:50, marginBottom:20, animation:"pulse 2s infinite" }}>
+          🔄📱
+        </div>
+        <h2 style={{ fontFamily:"'Lora', serif", color:"#D4A940", fontSize:28, marginBottom:10 }}>
+          Rotate Your Device
+        </h2>
+        <p style={{ fontSize:16, lineHeight:1.5, color:"rgba(240,232,208,.7)" }}>
+          Puzzle Grove requires a wider screen to give you enough room to arrange the pieces. <br/><br/>
+          Please turn your phone sideways to play!
+        </p>
+      </div>
+    );
+  }
   // ─── HOME ────────────────────────────────────────────────────────────────
   if (page === "home") return (
     <div style={{ fontFamily:"'Nunito',sans-serif", minHeight:"100vh", background:BG, color:"#F0E8D0", display:"flex", flexDirection:"column", alignItems:"center", padding:"32px 20px 48px", userSelect:"none", overflowX:"hidden" }}>
@@ -428,6 +469,7 @@ const onMove = useCallback(e => {
             return (
               <div
                 key={p.id}
+                id={`piece-${p.id}`} // <--- ADD THIS LINE HERE
                 className={`piece${p.locked ? " locked" : ""}`}
                 onMouseDown={e => onDown(e, p.id, p.locked)}
 onTouchStart={e => onDown(e, p.id, p.locked)}
