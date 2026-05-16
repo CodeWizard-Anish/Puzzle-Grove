@@ -162,7 +162,19 @@ export default function App() {
     setActiveImg(imgUrl(p.seed));
     setCustomImg(null);
   }
+function selectPreset(p) {
+    setPreset(p);
+    setActiveImg(imgUrl(p.seed));
+    setCustomImg(null);
+  }
 
+  // 👇 ADD THIS NEW FUNCTION 👇
+  function selectRandom() {
+    setPreset(null);
+    setCustomImg(null);
+    // Date.now() forces the browser to grab a fresh image every time you click it!
+    setActiveImg(`https://picsum.photos/${gridSize * PS}/${gridSize * PS}?random=${Date.now()}`);
+  }
   async function handleUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -326,6 +338,7 @@ export default function App() {
         </p>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14 }}>
           {PRESETS.map(p => (
+            
             <div key={p.seed} className={`preset-card${preset?.seed === p.seed ? " active" : ""}`} onClick={() => selectPreset(p)}>
               <img src={imgUrl(p.seed)} alt={p.label} style={{ width:"100%", height:105, objectFit:"cover", display:"block" }} crossOrigin="anonymous" />
               <div style={{ position:"absolute", bottom:0, left:0, right:0, background:"linear-gradient(transparent,rgba(0,0,0,.72))", padding:"20px 10px 9px", fontSize:13, fontWeight:700, color:"#fff", textAlign:"center" }}>
@@ -336,6 +349,22 @@ export default function App() {
               )}
             </div>
           ))}
+          {/* 👇 ADD THIS NEW MYSTERY CARD 👇 */}
+          <div 
+            className={`preset-card${!preset && !customImg ? " active" : ""}`} 
+            onClick={selectRandom}
+            style={{ background: "linear-gradient(135deg, #162A1E, #0C1F14)" }}
+          >
+            <div style={{ width:"100%", height:105, display:"flex", alignItems:"center", justifyContent:"center", fontSize:40, animation:"float 3s ease-in-out infinite" }}>
+              ❓
+            </div>
+            <div style={{ position:"absolute", bottom:0, left:0, right:0, background:"linear-gradient(transparent,rgba(0,0,0,.72))", padding:"20px 10px 9px", fontSize:13, fontWeight:700, color:"#D4A940", textAlign:"center" }}>
+              🎲 Mystery Puzzle
+            </div>
+            {!preset && !customImg && (
+              <div style={{ position:"absolute", top:8, right:8, width:24, height:24, borderRadius:"50%", background:"#D4A940", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#1a1a1a", fontWeight:800 }}>✓</div>
+            )}
+          </div>
         </div>
 
         {/* Upload & Difficulty */}
