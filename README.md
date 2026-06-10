@@ -1,9 +1,10 @@
 # 🧩 Puzzle Grove
 
 **Puzzle Grove** is a full-stack, interactive web application that brings the classic joy of jigsaw puzzles into the browser. Built with a modern MERN stack, this platform allows users to relax with built-in, beautifully curated puzzles or challenge themselves by uploading their own custom images.
+<img width="1878" height="907" alt="image" src="https://github.com/user-attachments/assets/c53e585b-979b-4dc1-9d9b-965af652c049" />
+
 
 This repository serves multiple audiences. Please use the table of contents below to navigate to the section most relevant to you.
-
 ---
 
 ## 📑 Table of Contents
